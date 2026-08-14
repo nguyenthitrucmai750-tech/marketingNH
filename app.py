@@ -1,275 +1,126 @@
-import streamlit as st
-import pandas as pd
+import sqlite3
 from io import BytesIO
+import pandas as pd
+import streamlit as st
 
-from database import (
-    create_table,
-    add_customer,
-    get_customers,
-    delete_customer
-)
-
-
-# =========================
-# CẤU HÌNH TRANG
-# =========================
-
+# Cấu hình trang
 st.set_page_config(
-    page_title="Quản lý khách hàng",
-    page_icon="👤",
-    layout="wide"
-)
-
-# Tạo database/table
-create_table()
-
-
-# =========================
-# HÀM XUẤT EXCEL
-# =========================
-
-def export_excel(df):
-
-    output = BytesIO()
-
-    with pd.ExcelWriter(
-        output,
-        engine="openpyxl"
-    ) as writer:
-
-        df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Khách hàng"
-        )
-
-    return output.getvalue()
-
-
-# =========================
-# MENU
-# =========================
-
-st.sidebar.title("📋 MENU")
-
-page = st.sidebar.radio(
-    "Chọn trang",
-    [
-        "👤 Nhập khách hàng",
-        "🔐 Admin"
-    ]
+    page_title="Quản lý thông tin khách hàng", page_icon="📋", layout="wide"
 )
 
 
-# =====================================================
-# TRANG NHẬP KHÁCH HÀNG
-# =====================================================
-
-if page == "👤 Nhập khách hàng":
-
-    st.title("👤 THÔNG TIN KHÁCH HÀNG")
-
-    st.write(
-        "Vui lòng nhập thông tin khách hàng bên dưới."
-    )
-
-    st.divider()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        phone = st.text_input(
-            "📱 Số điện thoại",
-            placeholder="Nhập số điện thoại"
+# --- KHỞI TẠO VÀ XỬ LÝ CƠ SỞ DỮ LIỆU (SQLITE) ---
+def init_db():
+    """Khởi tạo bảng cơ sở dữ liệu nếu chưa tồn tại"""
+    conn = sqlite3.connect("customers.db")
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone TEXT NOT NULL,
+            name TEXT NOT NULL,
+            address TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    """)
+    conn.commit()
+    conn.close()
 
-    with col2:
 
-        name = st.text_input(
-            "👤 Tên khách hàng",
-            placeholder="Nhập tên khách hàng"
-        )
-
-    address = st.text_input(
-        "📍 Địa chỉ",
-        placeholder="Nhập địa chỉ khách hàng"
+def add_customer(phone, name, address, notes):
+    """Thêm khách hàng mới vào cơ sở dữ liệu"""
+    conn = sqlite3.connect("customers.db")
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO customers (phone, name, address, notes) VALUES (?, ?, ?,"
+        " ?)",
+        (phone, name, address, notes),
     )
+    conn.commit()
+    conn.close()
 
-    note = st.text_area(
-        "📝 Ghi chú",
-        placeholder="Nhập ghi chú nếu có"
+
+def get_all_customers():
+    """Lấy toàn bộ danh sách khách hàng"""
+    conn = sqlite3.connect("customers.db")
+    df = pd.read_sql_query(
+        'SELECT phone AS "Số điện thoại", name AS "Tên khách hàng", address AS'
+        ' "Địa chỉ", notes AS "Ghi chú", created_at AS "Thời gian tạo" FROM'
+        " customers ORDER BY id DESC",
+        conn,
     )
-
-    st.divider()
-
-    if st.button(
-        "💾 LƯU THÔNG TIN",
-        type="primary",
-        use_container_width=True
-    ):
-
-        # Kiểm tra dữ liệu bắt buộc
-        if phone.strip() == "":
-            st.error("❌ Vui lòng nhập số điện thoại.")
-
-        elif name.strip() == "":
-            st.error("❌ Vui lòng nhập tên khách hàng.")
-
-        else:
-
-            add_customer(
-                phone=phone.strip(),
-                name=name.strip(),
-                address=address.strip(),
-                note=note.strip()
-            )
-
-            st.success(
-                "✅ Đã lưu thông tin khách hàng thành công!"
-            )
-
-            st.balloons()
+    conn.close()
+    return df
 
 
-# =====================================================
-# TRANG ADMIN
-# =====================================================
+# Chạy khởi tạo DB
+init_db()
 
-elif page == "🔐 Admin":
+# --- GIAO DIỆN ĐIỀU HƯỚNG (SIDEBAR) ---
+st.sidebar.title("📌 Menu Quản Lý")
+menu = st.sidebar.radio(
+    "Chọn chức năng:", ["Nhập thông tin khách hàng", "Trang Admin (Quản lý)"]
+)
 
-    st.title("🔐 ADMIN - QUẢN LÝ KHÁCH HÀNG")
+# --- TRANG 1: NHẬP THÔNG TIN KHÁCH HÀNG ---
+if menu == "Nhập thông tin khách hàng":
+    st.title("📝 Nhập Thông Tin Khách Hàng")
+    st.write("Vui lòng điền thông tin chi tiết bên dưới:")
 
-    st.divider()
-
-    # =========================
-    # ĐĂNG NHẬP ADMIN
-    # =========================
-
-    if "admin_logged_in" not in st.session_state:
-        st.session_state.admin_logged_in = False
-
-    if not st.session_state.admin_logged_in:st.subheader("🔑 Đăng nhập Admin")
-
-        password = st.text_input(
-            "Mật khẩu",
-            type="password"
-        )
-
-        if st.button(
-            "Đăng nhập",
-            type="primary"
-        ):
-
-            if password == "123456":
-
-                st.session_state.admin_logged_in = True
-
-                st.success("✅ Đăng nhập thành công!")
-
-                st.rerun()
-
-            else:
-
-                st.error("❌ Sai mật khẩu.")
-
-    else:
-
-        # =========================
-        # HEADER ADMIN
-        # =========================
-
-        col1, col2 = st.columns([5, 1])
+    with st.form(key="customer_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
 
         with col1:
-
-            st.subheader("📊 Danh sách khách hàng")
-
+            phone = st.text_input("Số điện thoại (*)")
         with col2:
+            name = st.text_input("Tên khách hàng (*)")
 
-            if st.button("🚪 Đăng xuất"):
+        address = st.text_area("Địa chỉ", placeholder="Nhập địa chỉ cụ thể...")
+        notes = st.text_area("Ghi chú", placeholder="Ghi chú thêm (nếu có)...")
 
-                st.session_state.admin_logged_in = False
+        submit_button = st.form_submit_button(label="💾 Lưu lại")
 
-                st.rerun()
-
-        # =========================
-        # LẤY DỮ LIỆU
-        # =========================
-
-        df = get_customers()
-
-        if df.empty:
-
-            st.info(
-                "📭 Chưa có thông tin khách hàng."
-            )
-
-        else:
-
-            # =========================
-            # THỐNG KÊ
-            # =========================
-
-            st.metric(
-                "👥 Tổng số khách hàng",
-                len(df)
-            )
-
-            st.divider()
-
-            # =========================
-            # HIỂN THỊ BẢNG
-            # =========================
-
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.divider()
-
-            # =========================
-            # XUẤT EXCEL
-            # =========================
-
-            excel_file = export_excel(df)
-
-            st.download_button(
-                label="📥 XUẤT FILE EXCEL",
-                data=excel_file,
-                file_name="danh_sach_khach_hang.xlsx",
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-                use_container_width=True
-            )
-
-            st.divider()
-
-            # =========================
-            # XÓA KHÁCH HÀNG
-            # =========================
-
-            st.subheader("🗑️ Xóa khách hàng")
-
-            customer_id = st.number_input(
-                "Nhập STT khách hàng cần xóa",
-                min_value=1,
-                step=1
-            )
-
-            if st.button(
-                "🗑️ XÓA KHÁCH HÀNG",
-                type="secondary"
-            ):
-
-                delete_customer(customer_id)
-
-                st.success(
-                    "✅ Đã xóa khách hàng."
+        if submit_button:
+            if not phone.strip() or not name.strip():
+                st.error("⚠️ Vui lòng điền đầy đủ **Số điện thoại** và **Tên khách hàng**!")
+            else:
+                add_customer(
+                    phone.strip(), name.strip(), address.strip(), notes.strip()
                 )
+                st.success(
+                    f"✅ Đã lưu thành công thông tin khách hàng **{name}**!")
 
-                st.rerun()
+# --- TRANG 2: TRANG ADMIN (QUẢN LÝ & XUẤT EXCEL) ---
+elif menu == "Trang Admin (Quản lý)":
+    st.title("👑 Trang Quản Trị - Danh Sách Khách Hàng")
+
+    df = get_all_customers()
+
+    if not df.empty:
+        # Thống kê nhanh
+        st.metric(label="Tổng số khách hàng", value=len(df))
+
+        # Hiển thị bảng dữ liệu
+        st.subheader("📋 Bảng dữ liệu")
+        st.dataframe(df, use_container_width=True)
+
+        # Chức năng xuất file Excel
+        st.subheader("📥 Xuất Dữ Liệu")
+
+        # Chuyển đổi DataFrame sang định dạng binary Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Danh_Sach_Khach_Hang")
+        excel_data = output.getvalue()
+
+        st.download_button(
+            label="📊 Tải xuống file Excel (.xlsx)",
+            data=excel_data,
+            file_name="danh_sach_khach_hang.xlsx",
+            mime=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+    else:
+        st.info("ℹ️ Hiện chưa có dữ liệu khách hàng nào được lưu.")
